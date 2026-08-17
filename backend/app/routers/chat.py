@@ -27,7 +27,7 @@ def _ensure_session(db: Session, session_id: int, user: User) -> ChatSession:
 
 # ========== 非流式（备用） ==========
 @router.post("/{session_id}", response_model=schemas.MessageInfo)
-def chat_sync(
+async def chat_sync(
     session_id: int,
     payload: schemas.ChatRequest,
     db: Session = Depends(get_db),
@@ -38,8 +38,9 @@ def chat_sync(
     # 1. 保存用户消息
     ss.create_message(db, sess, role="user", content=payload.question)
 
-    # 2. 走 RAG
-    result = rs.answer_question(
+    # 2. 走 RAG（async：LLM 调用必须在 FastAPI 全局事件循环中 await，
+    #    否则单例 ChatOllama 的 httpx 客户端会报 "Event loop is closed"）
+    result = await rs.answer_question(
         db,
         sess,
         current_user,
@@ -163,7 +164,13 @@ def chat_stream(
                         yield f"data: {chunk}\n\n"
             except Exception as e:
                 logger.error("stream_llm_chain_failed", err=str(e))
-                yield f"data: [ERROR] 大模型调用失败：{e}\n\n"
+                err_text = f"大模型调用失败：{e}"
+                low = str(e).lower()
+                if any(k in low for k in ("401", "authentication", "invalid api key", "unauthorized")):
+                    err_text += "（提示：远程 API Key 无效/已过期，请在 backend/.env 检查 OPENAI_COMPAT_API_KEY，或将 LLM_PROVIDER 改为 ollama）"
+                elif "connect" in low:
+                    err_text += "（提示：无法连接模型服务，请检查网络/是否启动 Ollama）"
+                yield f"data: [ERROR] {err_text}\n\n"
 
             yield "data: [DONE]\n\n"
 

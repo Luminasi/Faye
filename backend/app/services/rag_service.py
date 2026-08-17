@@ -27,6 +27,12 @@ settings = get_settings()
 logger = get_logger("rag_service")
 
 
+def _looks_like_auth_error(exc: Exception) -> bool:
+    """401 / Authentication / invalid api key 等关键词 → 远程 key 配置问题"""
+    text = f"{type(exc).__name__}: {exc}".lower()
+    return any(k in text for k in ("401", "authentication", "invalid api key", "unauthorized"))
+
+
 @dataclass
 class RAGResult:
     answer: str
@@ -64,6 +70,7 @@ def _retrieve_multi(
     if not collections:
         return []
     all_docs: List[Document] = []
+    failed = 0
     for col_name, kb_id in collections:
         try:
             ret = vs.get_retriever(col_name, k=k)
@@ -72,7 +79,19 @@ def _retrieve_multi(
                 d.metadata.setdefault("kb_id", kb_id)
             all_docs.extend(docs)
         except Exception as e:
+            failed += 1
             logger.error("retrieve_collection_failed", collection=col_name, error=str(e))
+    # 所有集合检索都失败（通常是 Ollama 嵌入服务没启动）时，不能静默当成
+    # "知识库没有资料"，否则用户会误以为系统坏了/没数据。
+    if failed == len(collections) and not all_docs:
+        raise HTTPException(
+            503,
+            detail=(
+                "向量检索失败：无法连接本地嵌入模型（Ollama）。"
+                "请确认 Ollama 已启动（右下角托盘图标 / 运行 ollama serve），"
+                "并已执行 ollama pull nomic-embed-text"
+            ),
+        )
     # 去重：基于内容指纹
     seen: set[str] = set()
     unique: List[Document] = []
@@ -132,7 +151,7 @@ def itemgetter_question():
 
 # ----------- 核心问答 -----------
 
-def answer_question(
+async def answer_question(
     db: Session,
     sess: ChatSession,
     user: User,
@@ -141,7 +160,14 @@ def answer_question(
     kb_ids: Optional[List[int]] = None,
     use_cache: bool = True,
 ) -> RAGResult:
-    """非流式：用于回退或缓存写入"""
+    """非流式：用于回退或缓存写入。
+
+    注意：这是 async def —— LLM 调用必须 await。LangChain 的 ChatOllama
+    (langchain_ollama) 底层 httpx 异步客户端绑定在「创建时的」事件循环上，
+    而 get_llm() 返回单例，所以绝不能像以前那样在同步函数里
+    asyncio.new_event_loop() + loop.close()（第二次调用就会报
+    "Event loop is closed"）。统一让 FastAPI 的 async 端点直接 await 即可。
+    """
     t0 = time.time()
 
     # 1. 缓存检查
@@ -169,19 +195,18 @@ def answer_question(
         lat = int((time.time() - t0) * 1000)
         return RAGResult(answer=answer, sources=[], latency_ms=lat, cache_hit=False)
 
-    # 4. LCEL 调用
+    # 4. LCEL 调用（在调用方的事件循环里 await；调用方必须是 async 端点）
     chain = _build_chain(streaming=False)
     try:
-        loop = asyncio.new_event_loop()
-        try:
-            answer = loop.run_until_complete(
-                chain.ainvoke({"question": question, "docs": docs})
-            )
-        finally:
-            loop.close()
+        answer = await chain.ainvoke({"question": question, "docs": docs})
     except Exception as e:
         logger.error("llm_invoke_failed", error=str(e))
-        raise HTTPException(500, detail=f"大模型调用失败: {e}")
+        detail = f"大模型调用失败: {e}"
+        if _looks_like_auth_error(e):
+            detail += "（提示：远程 API Key 无效/已过期，请在 backend/.env 中检查 OPENAI_COMPAT_API_KEY，或将 LLM_PROVIDER 改为 ollama 使用本地模型）"
+        elif "connect" in str(e).lower() and settings.LLM_PROVIDER == "openai_compatible":
+            detail += "（提示：无法连接远程 API，请检查网络；或改用本地模型：LLM_PROVIDER=ollama）"
+        raise HTTPException(500, detail=detail)
 
     answer = (answer or "").strip()
     lat = int((time.time() - t0) * 1000)

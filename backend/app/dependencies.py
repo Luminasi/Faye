@@ -43,6 +43,11 @@ async def get_current_user(
 
 
 async def require_admin(current_user: User = Depends(get_current_user)) -> User:
-    if current_user.role != UserRole.ADMIN:
+    # Guard against DB rows where role is NULL/garbage (defense-in-depth)
+    role = getattr(current_user, "role", None)
+    if role is None:
+        logger.warning("require_admin_role_none", user_id=current_user.id)
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="用户角色数据异常，请联系管理员")
+    if role != UserRole.ADMIN:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="需要管理员权限")
     return current_user

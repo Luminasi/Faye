@@ -29,26 +29,35 @@ if not exist "venv\Scripts\activate.bat" (
 )
 echo.
 
-REM 2. Activate venv and install missing deps if any
+REM 2. Activate venv and ensure ALL deps match requirements.txt (ALWAYS re-check so
+REM    version bumps like bcrypt 3.x->4.x are picked up automatically)
 if not exist "venv\Scripts\activate.bat" (
   echo [ERROR] venv activation script missing.
   goto ENDERR
 )
 call "venv\Scripts\activate.bat"
 
-python -c "import langchain" >nul 2>nul
-if errorlevel 1 (
-  echo [2/3] Installing dependencies via pip install -r requirements.txt ...
-  echo       (5-15 min on first run)
-  python -m pip install --upgrade pip >nul
-  pip install -r requirements.txt
+echo [2/3] Checking dependencies (skip install if already satisfied) ...
+python -c "import langchain, langchain_openai, langchain_ollama, langchain_community, chromadb, bcrypt, tenacity, python_jose" >nul 2>nul
+if not errorlevel 1 (
+  echo       Dependencies ready. (skip pip install)
+) else (
+  echo       Installing dependencies via pip install -r requirements.txt ...
+  echo       (First run may take 5-15 min; later runs are skipped.)
+  python -m pip install -r requirements.txt
   if errorlevel 1 (
+    echo.
     echo [ERROR] pip install FAILED.
+    echo.
+    echo [HINT] If you see a dependency conflict over and over:
+    echo        1. Close this window.
+    echo        2. Delete the folder:  F:\LangchainRAG\backend\venv
+    echo        3. Re-run start_backend.bat  (it will rebuild a 100%% clean venv
+    echo           with no leftover old bcrypt/passlib packages to confuse pip).
+    echo.
     goto ENDERR
   )
   echo       Dependencies installed.
-) else (
-  echo [2/3] Dependencies ready.
 )
 echo.
 

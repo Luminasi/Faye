@@ -216,7 +216,10 @@ def _process_document(doc_id: int, collection_name: str) -> None:
         doc = db.query(Document).filter(Document.id == doc_id).first()
         if doc:
             doc.status = DocStatus.FAILED
-            doc.error_msg = (str(e) or "unknown")[:512]
+            msg = str(e) or "unknown"
+            if any(k in msg.lower() for k in ("refused", "connection", "connect", "ollama")):
+                msg += "。请确认本机 Ollama 已启动并已拉取嵌入模型：ollama pull nomic-embed-text"
+            doc.error_msg = msg[:512]
             db.commit()
     finally:
         db.close()

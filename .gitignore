@@ -53,6 +53,11 @@ backend/data/uploads/*.pdf
 backend/data/uploads/*.docx
 backend/data/uploads/*.txt
 backend/data/uploads/*.md
+# ChromaDB 集合运行时数据（历史路径遗留，勿提交）
+backend/data/uploads/kb_*/
+
+# ---- 本地杂项 ----
+sqlite_mcp_server.db
 
 # ---- Node.js / Vite frontend ----
 # Note: frontend/.gitignore also exists and handles node_modules etc,

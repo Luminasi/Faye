@@ -75,9 +75,15 @@ export function sseRequest({ url, data, token, onData, onDone, onError }) {
           const lines = part.split('\n')
           for (const line of lines) {
             if (line.startsWith('data:')) {
-              const chunk = line.slice(5)
+              // 剥掉 "data:" 及其后的一个分隔空格，否则每个 chunk 都带前导
+              // 空格：META:/[DONE] 判定会失败（" META:..."）、回答逐字被空格隔开
+              const chunk = line.slice(5).replace(/^ /, '')
               if (chunk === '[DONE]') {
                 onDone && onDone()
+                return
+              }
+              if (chunk.startsWith('[ERROR]')) {
+                onError && onError(new Error(chunk.slice(8).trim()))
                 return
               }
               onData && onData(chunk)

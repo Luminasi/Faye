@@ -1,5 +1,5 @@
 @echo off
-title RAG Backend FastAPI - Port 8000
+title RAG Backend FastAPI - Port 8002
 setlocal
 
 cd /d "%~dp0backend"
@@ -34,7 +34,7 @@ if not exist "venv\Scripts\activate.bat" (
 REM ---- 2. Activate venv. If langchain package missing -> auto pip install ----
 call "venv\Scripts\activate.bat"
 
-python -c "import langchain" >nul 2>nul
+python -c "import langchain, langchain_openai, langchain_ollama, langchain_community, chromadb, bcrypt" >nul 2>nul
 if errorlevel 1 (
   echo [2/3] Dependencies not installed. Running pip install -r requirements.txt ...
   echo       (Takes 5-15 minutes on first run, please wait)
@@ -56,11 +56,11 @@ if errorlevel 1 (
 
 REM ---- 3. Start FastAPI with auto reload ----
 echo [3/3] Starting FastAPI backend server ...
-echo       Swagger docs : http://localhost:8000/docs
+echo       Swagger docs : http://localhost:8002/docs
 echo       Frontend URL  : http://localhost:5173
 echo       Stop server   : Ctrl+C
 echo ============================================================
-python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+python -m uvicorn app.main:app --host 0.0.0.0 --port 8002 --reload
 
 echo.
 echo Backend exited.

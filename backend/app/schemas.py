@@ -2,7 +2,7 @@
 from datetime import datetime
 from typing import Any, Optional
 
-from pydantic import BaseModel, EmailStr, Field, ConfigDict
+from pydantic import BaseModel, EmailStr, Field, ConfigDict, field_validator
 
 from .models import DocStatus, UserRole
 
@@ -51,12 +51,28 @@ class SourceItem(BaseModel):
 
 
 class SessionCreate(BaseModel):
-    title: str = "新对话"
+    title: str = Field("新对话", min_length=1, max_length=255)
     default_kb_ids: Optional[list[int]] = None
 
 
 class SessionRename(BaseModel):
-    title: str
+    title: str = Field(..., min_length=1, max_length=255)
+
+
+def _coerce_int_list_or_none(v: Any) -> Optional[list[int]]:
+    """SQLAlchemy JSON column may contain weird legacy values; sanitize."""
+    if v is None:
+        return None
+    if isinstance(v, list):
+        out: list[int] = []
+        for item in v:
+            try:
+                out.append(int(item))
+            except (ValueError, TypeError):
+                pass
+        return out
+    # Fallback: anything else (dict, str, 0, True, ...) becomes None
+    return None
 
 
 class SessionInfo(BaseModel):
@@ -67,6 +83,28 @@ class SessionInfo(BaseModel):
     created_at: datetime
     updated_at: datetime
 
+    @field_validator("default_kb_ids", mode="before")
+    @classmethod
+    def _clean_default_kb_ids(cls, v: Any) -> Optional[list[int]]:
+        return _coerce_int_list_or_none(v)
+
+
+def _coerce_source_list(v: Any) -> Optional[list[dict]]:
+    if v is None:
+        return None
+    if isinstance(v, list):
+        cleaned: list[dict] = []
+        for item in v:
+            if isinstance(item, dict):
+                cleaned.append(item)
+            else:
+                try:
+                    cleaned.append(dict(item))
+                except Exception:
+                    pass
+        return cleaned
+    return None
+
 
 class MessageInfo(BaseModel):
     model_config = ConfigDict(from_attributes=True)
@@ -75,6 +113,12 @@ class MessageInfo(BaseModel):
     content: str
     sources: Optional[list[SourceItem]]
     created_at: datetime
+
+    @field_validator("sources", mode="before")
+    @classmethod
+    def _clean_sources(cls, v: Any) -> Any:
+        """Pydantic will validate against list[SourceItem]; we just coerce shape."""
+        return _coerce_source_list(v)
 
 
 class ChatRequest(BaseModel):
