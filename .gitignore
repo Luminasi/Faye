@@ -59,6 +59,9 @@ backend/data/uploads/kb_*/
 # ---- 本地杂项 ----
 sqlite_mcp_server.db
 
+# ---- 质量门禁运行时标记（由 tester/quality-engineer 生成，勿提交）----
+.claude/markers/
+
 # ---- Node.js / Vite frontend ----
 # Note: frontend/.gitignore also exists and handles node_modules etc,
 # but we repeat here for root-level git tracking safety.
